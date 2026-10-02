@@ -1,3 +1,4 @@
+.build-note { margin: 0; color: #99a3a4; text-align: right; font: 10px 'DM Mono', monospace; }.build-note button { padding: 0; color: var(--coral); background: transparent; font: inherit; }.status-pulse.error { background: var(--coral); }.toast { position: fixed; right: 24px; bottom: 24px; z-index: 10; max-width: 320px; padding: 12px 15px; border: 1px solid #d9e0dc; border-radius: 7px; color: #fff; background: var(--navy); box-shadow: 0 8px 24px rgba(32,58,67,.2); font-size: 11px; animation: toast-in .25s ease-out; }
 :root {
   --ink: #1e252b;
   --muted: #7a8389;
