@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>App Workflow - Interactive 2D Map</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    /* Dot Grid Background */
+    .bg-grid-dots {
+      background-image: radial-gradient(rgba(148, 163, 184, 0.15) 1.5px, transparent 1.5px);
+      background-size: 24px 24px;
+    }
+
+    /* Node glow & active states */
+    .node-card {
+      transition: box-shadow 0.2s ease, border-color 0.2s ease;
+      cursor: grab;
+    }
+    .node-card:active {
+      cursor: grabbing;
+    }
+    .node-card:hover {
+      box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.25);
+    }
+    .node-card.active {
+      border-color: #3b82f6 !important;
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+    }
+
+    /* Connection animation */
+    @keyframes dash {
+      to { stroke-dashoffset: -40; }
+    }
+    .flow-line-animated {
+      stroke-dasharray: 8, 8;
+      animation: dash 2s linear infinite;
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col font-sans overflow-hidden select-none">
+
+  <!-- Top Navigation Header -->
+  <header class="h-16 border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-6 flex items-center justify-between z-20 shrink-0">
+    <div class="flex items-center space-x-3">
+      <div class="p-2 bg-blue-600/20 border border-blue-500/30 rounded-lg text-blue-400">
+        <i data-lucide="git-fork" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <h1 class="font-bold text-lg text-slate-100 flex items-center gap-2">
+          App Workflow <span class="text-xs font-mono font-normal bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20">Editable</span>
+        </h1>
+        <p class="text-xs text-slate-400">Visual Lead-to-Project Pipeline Architecture</p>
+      </div>
+    </div>
+
+    <!-- Controls & Actions -->
+    <div class="flex items-center gap-3">
+      <!-- Search -->
+      <div class="relative">
+        <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+        <input type="text" id="searchInput" placeholder="Search workflow steps..." 
+          class="bg-slate-950 border border-slate-800 text-xs text-slate-200 pl-9 pr-3 py-1.5 rounded-lg focus:outline-none focus:border-blue-500 w-48 focus:w-64 transition-all">
+      </div>
+
+      <!-- Add Node Button -->
+      <button id="btnAddNode" class="px-3 py-1.5 text-xs font-medium rounded-md bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 transition">
+        <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add Node
+      </button>
+
+      <div class="w-px h-5 bg-slate-700 mx-1"></div>
+
+      <!-- View Switcher -->
+      <div class="flex bg-slate-950 p-1 rounded-lg border border-slate-800">
+        <button id="btnMapView" class="px-3 py-1 text-xs font-medium rounded-md bg-blue-600 text-white flex items-center gap-1.5 transition">
+          <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i> 2D Canvas
+        </button>
+        <button id="btnSwimlaneView" class="px-3 py-1 text-xs font-medium rounded-md text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition">
+          <i data-lucide="columns" class="w-3.5 h-3.5"></i> Swimlane
+        </button>
+      </div>
+
+      <button id="btnResetZoom" class="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-lg text-xs flex items-center gap-1" title="Reset View">
+        <i data-lucide="maximize-2" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Canvas Container -->
+  <div class="flex-1 flex relative overflow-hidden">
+
+    <!-- Interactive Canvas View -->
+    <main id="canvasContainer" class="flex-1 relative cursor-grab active:cursor-grabbing bg-slate-950 bg-grid-dots overflow-hidden">
+      
+      <!-- Zoom / Pan Controls -->
+      <div class="absolute bottom-6 left-6 z-10 flex items-center gap-2 bg-slate-900/90 border border-slate-800 backdrop-blur-md p-1.5 rounded-xl shadow-xl">
+        <button id="zoomOut" class="p-2 hover:bg-slate-800 rounded-lg text-slate-300 transition" title="Zoom Out"><i data-lucide="zoom-out" class="w-4 h-4"></i></button>
+        <span id="zoomLevel" class="text-xs font-mono text-slate-400 w-12 text-center">100%</span>
+        <button id="zoomIn" class="p-2 hover:bg-slate-800 rounded-lg text-slate-300 transition" title="Zoom In"><i data-lucide="zoom-in" class="w-4 h-4"></i></button>
+        <div class="h-4 w-px bg-slate-800 mx-1"></div>
+        <button id="centerCanvas" class="p-2 hover:bg-slate-800 rounded-lg text-slate-300 transition" title="Fit Content"><i data-lucide="crosshair" class="w-4 h-4"></i></button>
+      </div>
+
+      <!-- Transformable Workspace -->
+      <div id="viewport" class="absolute inset-0 origin-top-left" style="transform: translate(0px, 0px) scale(1);">
+        <!-- SVG Connections Layer -->
+        <svg id="svgConnections" class="absolute inset-0 w-[4000px] h-[3000px] pointer-events-none z-0">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569" />
+            </marker>
+            <marker id="arrow-active" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#3b82f6" />
+            </marker>
+          </defs>
+          <g id="linesGroup"></g>
+        </svg>
+
+        <!-- Nodes Container -->
+        <div id="nodesGroup" class="absolute w-[4000px] h-[3000px] pointer-events-none">
+          <!-- Nodes injected via JavaScript -->
+        </div>
+      </div>
+    </main>
+
+    <!-- Swimlane Alternate View -->
+    <div id="swimlaneContainer" class="hidden flex-1 p-8 overflow-x-auto bg-slate-950 flex gap-6">
+      <!-- Injected via JS -->
+    </div>
+
+    <!-- Right Drawer: Node Details Panel -->
+    <aside id="detailsPanel" class="w-96 border-l border-slate-800 bg-slate-900/95 backdrop-blur-xl flex flex-col z-20 shrink-0">
+      
+      <div class="p-5 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-2 w-full">
+          <div id="nodeTypeIcon" class="p-2 rounded-lg bg-blue-500/20 text-blue-400 shrink-0">
+            <i data-lucide="layers" class="w-5 h-5"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <!-- View Mode Headers -->
+            <div id="viewHeaders">
+              <span id="nodeCategory" class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block truncate">Phase Category</span>
+              <h2 id="nodeTitle" class="font-bold text-slate-100 text-base truncate">Select a Node</h2>
+            </div>
+            <!-- Edit Mode Headers -->
+            <div id="editHeaders" class="hidden space-y-1">
+              <input type="text" id="editCategory" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[10px] uppercase tracking-wider text-slate-300 focus:border-blue-500 focus:outline-none" placeholder="Category">
+              <input type="text" id="editTitle" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 font-bold text-slate-100 text-sm focus:border-blue-500 focus:outline-none" placeholder="Node Title">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-5 space-y-6 text-sm">
+        <div id="panelEmptyState" class="text-center py-12 text-slate-500">
+          <i data-lucide="mouse-pointer-click" class="w-10 h-10 mx-auto mb-3 opacity-40"></i>
+          <p>Click on any node in the 2D workflow map to inspect or edit details.</p>
+        </div>
+
+        <div id="panelContent" class="hidden space-y-5">
+          <!-- Edit Toggle Button -->
+          <button id="btnToggleEdit" class="w-full py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-semibold text-slate-200 flex items-center justify-center gap-2 transition border border-slate-700">
+            <i data-lucide="edit-3" class="w-3.5 h-3.5"></i> <span id="editBtnText">Edit Node Details</span>
+          </button>
+
+          <!-- Summary & Description -->
+          <div>
+            <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Description</h3>
+            
+            <!-- View Mode Text -->
+            <div id="viewTextDesc">
+              <p id="nodeSummary" class="text-slate-200 font-medium text-xs mb-2"></p>
+              <p id="nodeDescription" class="text-slate-400 leading-relaxed text-xs bg-slate-950/60 p-3 rounded-lg border border-slate-800/80"></p>
+            </div>
+
+            <!-- Edit Mode Textareas -->
+            <div id="editTextDesc" class="hidden space-y-2">
+              <textarea id="editSummary" rows="2" class="w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-slate-200 focus:border-blue-500 focus:outline-none" placeholder="Short summary..."></textarea>
+              <textarea id="editDescription" rows="4" class="w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-slate-400 focus:border-blue-500 focus:outline-none" placeholder="Detailed description..."></textarea>
+            </div>
+          </div>
+
+          <!-- Attributes / Key Fields (Read Only for now to keep UI clean) -->
+          <div>
+            <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Data & Inputs</h3>
+            <div id="nodeFields" class="space-y-2">
+              <!-- Key/Value Pairs injected here -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-4 border-t border-slate-800 bg-slate-950/50 flex justify-between items-center text-xs text-slate-400">
+        <span id="nodeIdTag" class="font-mono">ID: --</span>
+        <button id="btnDeleteNode" class="hidden text-red-400 hover:text-red-300 font-medium flex items-center gap-1">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Delete
+        </button>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    // --- Data Model for 2D Workflow Map ---
+    const workflowData = {
+      nodes: [
+        {
+          id: 'lead_gen', title: '1. Lead Generation', category: 'Sales & Onboarding', color: 'emerald', x: 80, y: 120, icon: 'message-square',
+          summary: 'Initial inbound lead capture from channels like Instagram DM.',
+          description: 'Captures new incoming requests automatically or manually. Triggered when a potential client reaches out with requirements.',
+          fields: [{ label: 'Source', value: 'Insta DM' }], integrations: ['Instagram API'], targets: ['meeting']
+        },
+        {
+          id: 'meeting', title: '2. Meeting Schedule', category: 'Sales & Onboarding', color: 'emerald', x: 440, y: 120, icon: 'calendar',
+          summary: 'Schedule discovery call or consultation meeting.',
+          description: 'Track client meeting logs, time slots, attendees, and operational status.',
+          fields: [{ label: 'Status Flag', value: 'Pending / Done' }], integrations: ['Calendly'], targets: ['proposal']
+        },
+        {
+          id: 'proposal', title: '3. Proposal & Deliverables', category: 'Sales & Onboarding', color: 'emerald', x: 800, y: 120, icon: 'file-text',
+          summary: 'Draft scope, pricing, duration, and client deliverables.',
+          description: 'Formal quote outlining specific deliverables, estimated duration, and pricing.',
+          fields: [{ label: 'Scope', value: 'Deliverables List' }], integrations: ['Proposal Engine'], targets: ['deal_decision']
+        },
+        {
+          id: 'deal_decision', title: '4. Deal Decision', category: 'Sales & Onboarding', color: 'emerald', x: 1160, y: 120, icon: 'git-decision',
+          summary: 'Client decision gateway (Yes / No).',
+          description: 'Branching node. If approved, triggers automatic client onboarding.',
+          fields: [{ label: 'Status', value: 'Yes / No' }], integrations: ['CRM Automation'], targets: ['create_client']
+        },
+        {
+          id: 'create_client', title: '5. Client Onboarding', category: 'Client Workspace', color: 'blue', x: 1520, y: 120, icon: 'user-check',
+          summary: 'Promote Lead to Active Client record.',
+          description: 'Generates hard-saved client records and provisions external Google Drive workspaces.',
+          fields: [{ label: 'Workspace', value: 'Auto-create GD Folder' }], integrations: ['Google Drive API'], targets: ['client_db', 'project_setup']
+        },
+        {
+          id: 'client_db', title: 'Client Database & UID', category: 'Client Workspace', color: 'blue', x: 1900, y: 120, icon: 'database',
+          summary: 'Centralized client database with unique UIDs.',
+          description: 'Stores master client records. One client can hold multiple projects.',
+          fields: [{ label: 'Relationship', value: '1 Client : Many Projects' }], integrations: ['PostgreSQL'], targets: []
+        },
+        {
+          id: 'project_setup', title: '6. Project Provisioning', category: 'Project Engine', color: 'purple', x: 1520, y: 420, icon: 'folder-plus',
+          summary: 'Initialize project structure, team, and unique project UID.',
+          description: 'Creates project container, links freelancer/team members, sets billing parameters.',
+          fields: [{ label: 'Assignment', value: 'Client / Freelancer' }], integrations: ['Team Management'], targets: ['task_breakdown']
+        },
+        {
+          id: 'task_breakdown', title: 'Task Breakdown Engine', category: 'Project Engine', color: 'purple', x: 1160, y: 420, icon: 'list-checks',
+          summary: 'Decompose project into granular workflow tasks.',
+          description: 'Standardized task sequence automatically created for video production or project deliverables.',
+          fields: [{ label: 'Standard Tasks', value: 'Script → Build → Review' }], integrations: ['Task Tracker'], targets: ['client_portal']
+        },
+        {
+          id: 'client_portal', title: 'Client Review Portal', category: 'Portal & Review', color: 'amber', x: 720, y: 420, icon: 'eye',
+          summary: 'Interactive portal for client review & feedback.',
+          description: 'Client views progress, leaves timestamped comments, requests modifications, or approves deliverables.',
+          fields: [{ label: 'Controls', value: 'Approve / Request Revision' }], integrations: ['Feedback Engine'], targets: []
+        }
+      ]
+    };
+
+    // Color definitions
+    const colorMap = {
+      emerald: { bg: 'bg-emerald-950/80', border: 'border-emerald-500/50', text: 'text-emerald-400', badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
+      blue:    { bg: 'bg-blue-950/80',    border: 'border-blue-500/50',    text: 'text-blue-400',    badge: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
+      purple:  { bg: 'bg-purple-950/80',  border: 'border-purple-500/50',  text: 'text-purple-400',  badge: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
+      amber:   { bg: 'bg-amber-950/80',   border: 'border-amber-500/50',   text: 'text-amber-400',   badge: 'bg-amber-500/20 text-amber-300 border-amber-500/30' }
+    };
+
+    // Application State
+    let zoomLevel = 0.85;
+    let panX = 40;
+    let panY = 60;
+    let isCanvasDragging = false;
+    let activeDragNodeId = null;
+    let activeNodeId = null;
+    let isEditMode = false;
+
+    // Elements
+    const container = document.getElementById('canvasContainer');
+    const viewport = document.getElementById('viewport');
+    const nodesGroup = document.getElementById('nodesGroup');
+    const linesGroup = document.getElementById('linesGroup');
+    const zoomLevelEl = document.getElementById('zoomLevel');
+    const searchInput = document.getElementById('searchInput');
+
+    // --- Render Nodes ---
+    function renderNodes() {
+      nodesGroup.innerHTML = '';
+      workflowData.nodes.forEach(node => {
+        const c = colorMap[node.color] || colorMap.blue;
+        const card = document.createElement('div');
+        card.id = `node-${node.id}`;
+        card.className = `node-card pointer-events-auto absolute w-72 ${c.bg} border ${c.border} rounded-2xl p-4 backdrop-blur-md shadow-lg ${activeNodeId === node.id ? 'active' : ''}`;
+        card.style.left = `${node.x}px`;
+        card.style.top = `${node.y}px`;
+
+        card.innerHTML = `
+          <div class="flex items-start justify-between mb-2 pointer-events-none">
+            <span class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full border ${c.badge}">
+              ${node.category}
+            </span>
+            <div class="${c.text}">
+              <i data-lucide="${node.icon}" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <h3 class="font-bold text-slate-100 text-sm mb-1 pointer-events-none">${node.title}</h3>
+          <p class="text-xs text-slate-400 line-clamp-2 leading-relaxed pointer-events-none">${node.summary}</p>
+        `;
+
+        // Node Interaction Listeners
+        card.addEventListener('mousedown', (e) => {
+          e.stopPropagation(); // Prevent canvas panning
+          selectNode(node.id);
+          activeDragNodeId = node.id;
+        });
+
+        nodesGroup.appendChild(card);
+      });
+
+      lucide.createIcons();
+    }
+
+    // --- Render SVG Connecting Lines ---
+    function renderConnections() {
+      linesGroup.innerHTML = '';
+
+      workflowData.nodes.forEach(sourceNode => {
+        if (!sourceNode.targets) return;
+        sourceNode.targets.forEach(targetId => {
+          const targetNode = workflowData.nodes.find(n => n.id === targetId);
+          if (!targetNode) return;
+
+          const sourceWidth = 288; 
+          const sourceHeight = 110;
+          
+          let sx = sourceNode.x + sourceWidth;
+          let sy = sourceNode.y + sourceHeight / 2;
+          let tx = targetNode.x;
+          let ty = targetNode.y + sourceHeight / 2;
+
+          // Simple dynamic routing
+          if (targetNode.x < sourceNode.x) {
+            sx = sourceNode.x;
+            tx = targetNode.x + sourceWidth;
+          }
+          if (Math.abs(targetNode.x - sourceNode.x) < 100) {
+            sx = sourceNode.x + sourceWidth / 2;
+            sy = sourceNode.y + sourceHeight;
+            tx = targetNode.x + sourceWidth / 2;
+            ty = targetNode.y;
+            if (targetNode.y < sourceNode.y) {
+               sy = sourceNode.y;
+               ty = targetNode.y + sourceHeight;
+            }
+          }
+
+          const dx = Math.abs(tx - sx) * 0.5;
+          const dy = Math.abs(ty - sy) * 0.5;
+          const pathD = `M ${sx} ${sy} C ${sx + dx} ${sy}, ${tx - dx} ${ty}, ${tx} ${ty}`;
+
+          const isActive = activeNodeId === sourceNode.id || activeNodeId === targetId;
+
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', pathD);
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', isActive ? '#3b82f6' : '#334155');
+          path.setAttribute('stroke-width', isActive ? '3' : '2');
+          path.setAttribute('marker-end', isActive ? 'url(#arrow-active)' : 'url(#arrow)');
+          linesGroup.appendChild(path);
+
+          if (isActive) {
+            const animPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            animPath.setAttribute('d', pathD);
+            animPath.setAttribute('fill', 'none');
+            animPath.setAttribute('stroke', '#60a5fa');
+            animPath.setAttribute('stroke-width', '2');
+            animPath.setAttribute('class', 'flow-line-animated');
+            linesGroup.appendChild(animPath);
+          }
+        });
+      });
+    }
+
+    // --- Transform Engine (Pan / Zoom / Drag) ---
+    function updateTransform() {
+      viewport.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+      zoomLevelEl.textContent = `${Math.round(zoomLevel * 100)}%`;
+    }
+
+    // Mouse Interactions on Canvas Window
+    window.addEventListener('mousedown', (e) => {
+      // Only start canvas pan if clicking directly on the container background
+      if (e.target.id === 'canvasContainer' || e.target.id === 'svgConnections') {
+        isCanvasDragging = true;
+      }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (activeDragNodeId) {
+        // Dragging a Node
+        const node = workflowData.nodes.find(n => n.id === activeDragNodeId);
+        if (node) {
+          node.x += e.movementX / zoomLevel;
+          node.y += e.movementY / zoomLevel;
+          
+          // Fast DOM update for the active node
+          const card = document.getElementById(`node-${node.id}`);
+          if (card) {
+            card.style.left = `${node.x}px`;
+            card.style.top = `${node.y}px`;
+          }
+          renderConnections(); // Live update lines
+        }
+      } else if (isCanvasDragging) {
+        // Panning the Canvas
+        panX += e.movementX;
+        panY += e.movementY;
+        updateTransform();
+      }
+    });
+
+    window.addEventListener('mouseup', () => { 
+      isCanvasDragging = false; 
+      activeDragNodeId = null;
+    });
+
+    // Mouse Wheel Zoom
+    container.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+      zoomLevel = Math.min(Math.max(0.3, zoomLevel * zoomFactor), 2.0);
+      updateTransform();
+    }, { passive: false });
+
+    // Zoom Buttons
+    document.getElementById('zoomIn').addEventListener('click', () => { zoomLevel = Math.min(2.0, zoomLevel * 1.15); updateTransform(); });
+    document.getElementById('zoomOut').addEventListener('click', () => { zoomLevel = Math.max(0.3, zoomLevel / 1.15); updateTransform(); });
+    document.getElementById('centerCanvas').addEventListener('click', centerWorkflow);
+    document.getElementById('btnResetZoom').addEventListener('click', centerWorkflow);
+
+    function centerWorkflow() {
+      zoomLevel = 0.75;
+      panX = 60;
+      panY = 100;
+      updateTransform();
+    }
+
+    // --- Node Selection & Sidebar Inspection ---
+    function selectNode(id) {
+      if (isEditMode) toggleEditMode(); // Save changes if switching nodes while editing
+      activeNodeId = id;
+
+      // Update UI Highlights
+      document.querySelectorAll('.node-card').forEach(el => el.classList.remove('active'));
+      const selectedCard = document.getElementById(`node-${id}`);
+      if (selectedCard) selectedCard.classList.add('active');
+      renderConnections();
+
+      // Populate Sidebar
+      const node = workflowData.nodes.find(n => n.id === id);
+      if (!node) return;
+
+      document.getElementById('panelEmptyState').classList.add('hidden');
+      document.getElementById('panelContent').classList.remove('hidden');
+      document.getElementById('btnDeleteNode').classList.remove('hidden');
+
+      // Set Display Texts
+      document.getElementById('nodeTitle').textContent = node.title;
+      document.getElementById('nodeCategory').textContent = node.category;
+      document.getElementById('nodeSummary').textContent = node.summary;
+      document.getElementById('nodeDescription').textContent = node.description;
+      document.getElementById('nodeIdTag').textContent = `ID: ${node.id}`;
+
+      // Set Edit Inputs
+      document.getElementById('editTitle').value = node.title;
+      document.getElementById('editCategory').value = node.category;
+      document.getElementById('editSummary').value = node.summary;
+      document.getElementById('editDescription').value = node.description;
+
+      const iconContainer = document.getElementById('nodeTypeIcon');
+      iconContainer.innerHTML = `<i data-lucide="${node.icon}" class="w-5 h-5"></i>`;
+      lucide.createIcons();
+
+      // Fields
+      const fieldsContainer = document.getElementById('nodeFields');
+      fieldsContainer.innerHTML = (node.fields || []).map(f => `
+        <div class="bg-slate-950/80 p-2.5 rounded-lg border border-slate-800">
+          <div class="text-[10px] text-slate-400 font-medium uppercase tracking-wider">${f.label}</div>
+          <div class="text-xs font-mono text-slate-200 mt-0.5">${f.value}</div>
+        </div>
+      `).join('');
+    }
+
+    // --- Edit Mode Logic ---
+    const btnToggleEdit = document.getElementById('btnToggleEdit');
+    const viewHeaders = document.getElementById('viewHeaders');
+    const editHeaders = document.getElementById('editHeaders');
+    const viewTextDesc = document.getElementById('viewTextDesc');
+    const editTextDesc = document.getElementById('editTextDesc');
+    const editBtnText = document.getElementById('editBtnText');
+
+    btnToggleEdit.addEventListener('click', toggleEditMode);
+
+    function toggleEditMode() {
+      if (!activeNodeId) return;
+      isEditMode = !isEditMode;
+
+      if (isEditMode) {
+        // Switch to Edit UI
+        viewHeaders.classList.add('hidden');
+        editHeaders.classList.remove('hidden');
+        viewTextDesc.classList.add('hidden');
+        editTextDesc.classList.remove('hidden');
+        editBtnText.textContent = "Save Changes";
+        btnToggleEdit.classList.replace('bg-slate-800', 'bg-blue-600');
+        btnToggleEdit.classList.replace('hover:bg-slate-700', 'hover:bg-blue-500');
+      } else {
+        // Save & Switch to View UI
+        const node = workflowData.nodes.find(n => n.id === activeNodeId);
+        if (node) {
+          node.title = document.getElementById('editTitle').value;
+          node.category = document.getElementById('editCategory').value;
+          node.summary = document.getElementById('editSummary').value;
+          node.description = document.getElementById('editDescription').value;
+          
+          // Re-render everything to show updates
+          renderNodes();
+          renderConnections();
+          selectNode(node.id);
+          if (!document.getElementById('swimlaneContainer').classList.contains('hidden')) {
+            renderSwimlanes();
+          }
+        }
+        
+        viewHeaders.classList.remove('hidden');
+        editHeaders.classList.add('hidden');
+        viewTextDesc.classList.remove('hidden');
+        editTextDesc.classList.add('hidden');
+        editBtnText.textContent = "Edit Node Details";
+        btnToggleEdit.classList.replace('bg-blue-600', 'bg-slate-800');
+        btnToggleEdit.classList.replace('hover:bg-blue-500', 'hover:bg-slate-700');
+      }
+    }
+
+    // Add New Node
+    document.getElementById('btnAddNode').addEventListener('click', () => {
+      const newNodeId = 'node_' + Math.random().toString(36).substr(2, 6);
+      
+      // Calculate center of current viewport to place new node
+      const centerX = (-panX + (window.innerWidth / 2)) / zoomLevel;
+      const centerY = (-panY + (window.innerHeight / 2)) / zoomLevel;
+
+      const newNode = {
+        id: newNodeId,
+        title: 'New Workflow Step',
+        category: 'Custom Phase',
+        color: 'blue',
+        x: centerX - 144, // Center minus half node width
+        y: centerY - 55,
+        icon: 'box',
+        summary: 'Click to edit summary.',
+        description: 'New node description goes here.',
+        fields: [],
+        integrations: [],
+        targets: []
+      };
+
+      workflowData.nodes.push(newNode);
+      renderNodes();
+      renderConnections();
+      selectNode(newNodeId);
+      
+      // Auto-trigger edit mode
+      if (!isEditMode) toggleEditMode();
+    });
+
+    // Delete Node
+    document.getElementById('btnDeleteNode').addEventListener('click', () => {
+      if (!activeNodeId) return;
+      if (confirm('Are you sure you want to remove this workflow step?')) {
+        // Remove node
+        workflowData.nodes = workflowData.nodes.filter(n => n.id !== activeNodeId);
+        // Remove dangling connections
+        workflowData.nodes.forEach(n => {
+          if (n.targets) n.targets = n.targets.filter(t => t !== activeNodeId);
+        });
+        
+        activeNodeId = null;
+        renderNodes();
+        renderConnections();
+        
+        // Hide panel
+        document.getElementById('panelEmptyState').classList.remove('hidden');
+        document.getElementById('panelContent').classList.add('hidden');
+        document.getElementById('btnDeleteNode').classList.add('hidden');
+        document.getElementById('nodeTitle').textContent = "Select a Node";
+        document.getElementById('nodeCategory').textContent = "Phase Category";
+        document.getElementById('nodeIdTag').textContent = "ID: --";
+        
+        if (isEditMode) toggleEditMode();
+      }
+    });
+
+    // --- Search Filter ---
+    searchInput.addEventListener('input', (e) => {
+      const query = e.target.value.toLowerCase().trim();
+      workflowData.nodes.forEach(node => {
+        const card = document.getElementById(`node-${node.id}`);
+        if (!card) return;
+        const matches = node.title.toLowerCase().includes(query) || 
+                        node.category.toLowerCase().includes(query) || 
+                        node.summary.toLowerCase().includes(query);
+        card.style.opacity = matches || query === '' ? '1' : '0.2';
+      });
+    });
+
+    // --- View Switcher ---
+    const btnMapView = document.getElementById('btnMapView');
+    const btnSwimlaneView = document.getElementById('btnSwimlaneView');
+    const canvasContainer = document.getElementById('canvasContainer');
+    const swimlaneContainer = document.getElementById('swimlaneContainer');
+
+    btnMapView.addEventListener('click', () => {
+      btnMapView.className = "px-3 py-1 text-xs font-medium rounded-md bg-blue-600 text-white flex items-center gap-1.5 transition";
+      btnSwimlaneView.className = "px-3 py-1 text-xs font-medium rounded-md text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition";
+      canvasContainer.classList.remove('hidden');
+      swimlaneContainer.classList.add('hidden');
+    });
+
+    btnSwimlaneView.addEventListener('click', () => {
+      btnSwimlaneView.className = "px-3 py-1 text-xs font-medium rounded-md bg-blue-600 text-white flex items-center gap-1.5 transition";
+      btnMapView.className = "px-3 py-1 text-xs font-medium rounded-md text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition";
+      canvasContainer.classList.add('hidden');
+      swimlaneContainer.classList.remove('hidden');
+      renderSwimlanes();
+    });
+
+    function renderSwimlanes() {
+      // Get unique categories dynamically to support custom nodes
+      const categories = [...new Set(workflowData.nodes.map(n => n.category))];
+      
+      swimlaneContainer.innerHTML = categories.map(cat => {
+        const catNodes = workflowData.nodes.filter(n => n.category === cat);
+        return `
+          <div class="w-80 shrink-0 bg-slate-900/60 border border-slate-800 rounded-2xl p-4 flex flex-col gap-4">
+            <h3 class="font-bold text-sm text-slate-200 flex items-center justify-between">
+              ${cat}
+              <span class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">${catNodes.length}</span>
+            </h3>
+            <div class="space-y-3">
+              ${catNodes.map(n => `
+                <div class="bg-slate-950 border ${activeNodeId === n.id ? 'border-blue-500 shadow-lg' : 'border-slate-800'} rounded-xl p-3.5 hover:border-blue-500/50 cursor-pointer transition" onclick="selectNode('${n.id}')">
+                  <div class="font-bold text-xs text-slate-100 mb-1">${n.title}</div>
+                  <p class="text-[11px] text-slate-400 leading-relaxed">${n.summary}</p>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // --- Initialization ---
+    renderNodes();
+    renderConnections();
+    centerWorkflow();
+    selectNode('lead_gen');
+  </script>
+</body>
+</html>

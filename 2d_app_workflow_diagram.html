@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>App Workflow - 2D Visual Map</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    /* Dot Grid Background */
+    .bg-grid-dots {
+      background-image: radial-gradient(rgba(148, 163, 184, 0.15) 1.5px, transparent 1.5px);
+      background-size: 24px 24px;
+    }
+
+    /* Node glow & active states */
+    .node-card {
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+    .node-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.25);
+    }
+    .node-card.active {
+      border-color: #3b82f6 !important;
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+    }
+
+    /* Connection animation */
+    @keyframes dash {
+      to {
+        stroke-dashoffset: -40;
+      }
+    }
+    .flow-line-animated {
+      stroke-dasharray: 8, 8;
+      animation: dash 2s linear infinite;
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col font-sans overflow-hidden select-none">
+
+  <!-- Top Navigation Header -->
+  <header class="h-16 border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-6 flex items-center justify-between z-20 shrink-0">
+    <div class="flex items-center space-x-3">
+      <div class="p-2 bg-blue-600/20 border border-blue-500/30 rounded-lg text-blue-400">
+        <i data-lucide="git-fork" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <h1 class="font-bold text-lg text-slate-100 flex items-center gap-2">
+          App Workflow <span class="text-xs font-mono font-normal bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20">2D Map</span>
+        </h1>
+        <p class="text-xs text-slate-400">Visual Lead-to-Project Pipeline Architecture</p>
+      </div>
+    </div>
+
+    <!-- Controls & Actions -->
+    <div class="flex items-center gap-3">
+      <!-- Search -->
+      <div class="relative">
+        <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+        <input type="text" id="searchInput" placeholder="Search workflow steps..." 
+          class="bg-slate-950 border border-slate-800 text-xs text-slate-200 pl-9 pr-3 py-1.5 rounded-lg focus:outline-none focus:border-blue-500 w-48 focus:w-64 transition-all">
+      </div>
+
+      <!-- View Switcher -->
+      <div class="flex bg-slate-950 p-1 rounded-lg border border-slate-800">
+        <button id="btnMapView" class="px-3 py-1 text-xs font-medium rounded-md bg-blue-600 text-white flex items-center gap-1.5 transition">
+          <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i> 2D Canvas
+        </button>
+        <button id="btnSwimlaneView" class="px-3 py-1 text-xs font-medium rounded-md text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition">
+          <i data-lucide="columns" class="w-3.5 h-3.5"></i> Swimlane
+        </button>
+      </div>
+
+      <button id="btnResetZoom" class="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-lg text-xs flex items-center gap-1" title="Reset View">
+        <i data-lucide="maximize-2" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Canvas Container -->
+  <div class="flex-1 flex relative overflow-hidden">
+
+    <!-- Interactive Canvas View -->
+    <main id="canvasContainer" class="flex-1 relative cursor-grab active:cursor-grabbing bg-slate-950 bg-grid-dots overflow-hidden">
+      
+      <!-- Zoom / Pan Controls Floating Badge -->
+      <div class="absolute bottom-6 left-6 z-10 flex items-center gap-2 bg-slate-900/90 border border-slate-800 backdrop-blur-md p-1.5 rounded-xl shadow-xl">
+        <button id="zoomOut" class="p-2 hover:bg-slate-800 rounded-lg text-slate-300 transition" title="Zoom Out"><i data-lucide="zoom-out" class="w-4 h-4"></i></button>
+        <span id="zoomLevel" class="text-xs font-mono text-slate-400 w-12 text-center">100%</span>
+        <button id="zoomIn" class="p-2 hover:bg-slate-800 rounded-lg text-slate-300 transition" title="Zoom In"><i data-lucide="zoom-in" class="w-4 h-4"></i></button>
+        <div class="h-4 w-px bg-slate-800 mx-1"></div>
+        <button id="centerCanvas" class="p-2 hover:bg-slate-800 rounded-lg text-slate-300 transition" title="Fit Content"><i data-lucide="crosshair" class="w-4 h-4"></i></button>
+      </div>
+
+      <!-- Legend -->
+      <div class="absolute top-6 left-6 z-10 bg-slate-900/90 border border-slate-800 backdrop-blur-md p-3 rounded-xl shadow-xl flex items-center gap-4 text-xs">
+        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-emerald-500"></span> Sales & Lead</div>
+        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-blue-500"></span> Client Workspace</div>
+        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-purple-500"></span> Project Engine</div>
+        <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-amber-500"></span> Portal & Review</div>
+      </div>
+
+      <!-- Transformable Workspace -->
+      <div id="viewport" class="absolute inset-0 origin-0 transition-transform duration-75">
+        <!-- SVG Connections Layer -->
+        <svg id="svgConnections" class="absolute inset-0 w-[2400px] h-[1600px] pointer-events-none z-0">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569" />
+            </marker>
+            <marker id="arrow-active" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#3b82f6" />
+            </marker>
+          </defs>
+          <g id="linesGroup"></g>
+        </svg>
+
+        <!-- Nodes Container -->
+        <div id="nodesGroup" class="absolute w-[2400px] h-[1600px] pointer-events-none">
+          <!-- Nodes injected via JavaScript -->
+        </div>
+      </div>
+    </main>
+
+    <!-- Swimlane Alternate View (Hidden by default) -->
+    <div id="swimlaneContainer" class="hidden flex-1 p-8 overflow-x-auto bg-slate-950 flex gap-6">
+      <!-- Injected via JS -->
+    </div>
+
+    <!-- Right Drawer: Node Details Panel -->
+    <aside id="detailsPanel" class="w-96 border-l border-slate-800 bg-slate-900/95 backdrop-blur-xl flex flex-col z-20 transition-all transform translate-x-0">
+      <div class="p-5 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div id="nodeTypeIcon" class="p-2 rounded-lg bg-blue-500/20 text-blue-400">
+            <i data-lucide="layers" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <span id="nodeCategory" class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Phase Category</span>
+            <h2 id="nodeTitle" class="font-bold text-slate-100 text-base">Select a Node</h2>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-5 space-y-6 text-sm">
+        <div id="panelEmptyState" class="text-center py-12 text-slate-500">
+          <i data-lucide="mouse-pointer-click" class="w-10 h-10 mx-auto mb-3 opacity-40"></i>
+          <p>Click on any node in the 2D workflow map to inspect details, variables, and automated triggers.</p>
+        </div>
+
+        <div id="panelContent" class="hidden space-y-5">
+          <!-- Description -->
+          <div>
+            <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Description</h3>
+            <p id="nodeDescription" class="text-slate-300 leading-relaxed text-xs bg-slate-950/60 p-3 rounded-lg border border-slate-800/80"></p>
+          </div>
+
+          <!-- Attributes / Key Fields -->
+          <div>
+            <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Data & Inputs</h3>
+            <div id="nodeFields" class="space-y-2">
+              <!-- Key/Value Pairs injected here -->
+            </div>
+          </div>
+
+          <!-- Actions & Integrations -->
+          <div>
+            <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">System Connections</h3>
+            <div id="nodeIntegrations" class="flex flex-wrap gap-2">
+              <!-- Tags injected here -->
+            </div>
+          </div>
+
+          <!-- Downstream Impact -->
+          <div>
+            <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Connected Flow</h3>
+            <div id="nodeConnections" class="space-y-1.5 text-xs">
+              <!-- Connections injected here -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-4 border-t border-slate-800 bg-slate-950/50 flex justify-between items-center text-xs text-slate-400">
+        <span id="nodeIdTag" class="font-mono">ID: --</span>
+        <button id="btnHighlightConnections" class="text-blue-400 hover:text-blue-300 font-medium flex items-center gap-1">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Highlight Path
+        </button>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    // --- Data Model for 2D Workflow Map ---
+    const workflowData = {
+      nodes: [
+        // PHASE 1: Sales & Onboarding
+        {
+          id: 'lead_gen',
+          title: '1. Lead Generation',
+          category: 'Sales & Onboarding',
+          color: 'emerald',
+          x: 80,
+          y: 120,
+          icon: 'message-square',
+          summary: 'Initial inbound lead capture from channels like Instagram DM.',
+          description: 'Captures new incoming requests automatically or manually. Triggered when a potential client reaches out with requirements.',
+          fields: [
+            { label: 'Source', value: 'Insta DM ("We need 15 reels")' },
+            { label: 'Fields Collected', value: 'Lead Name, Channel Source, Potential Deal Value' }
+          ],
+          integrations: ['Instagram API', 'Lead Database', 'CRM Alert'],
+          targets: ['meeting']
+        },
+        {
+          id: 'meeting',
+          title: '2. Meeting Schedule',
+          category: 'Sales & Onboarding',
+          color: 'emerald',
+          x: 440,
+          y: 120,
+          icon: 'calendar',
+          summary: 'Schedule discovery call or consultation meeting.',
+          description: 'Track client meeting logs, time slots, attendees, and operational status.',
+          fields: [
+            { label: 'Data Points', value: 'Scheduled Time, Client Name, Lead Status' },
+            { label: 'Status Flag', value: 'Pending / Done' }
+          ],
+          integrations: ['Google Calendar', 'Calendly', 'Zoom'],
+          targets: ['proposal']
+        },
+        {
+          id: 'proposal',
+          title: '3. Proposal & Deliverables',
+          category: 'Sales & Onboarding',
+          color: 'emerald',
+          x: 800,
+          y: 120,
+          icon: 'file-text',
+          summary: 'Draft scope, pricing, duration, and client deliverables.',
+          description: 'Formal quote outlining specific deliverables (e.g., 15 Instagram Reels), estimated duration, and pricing.',
+          fields: [
+            { label: 'Client Requirement', value: 'Authenticated Client Specs' },
+            { label: 'Scope', value: 'Our Deliverables List' },
+            { label: 'Commercials', value: 'Project Duration → Total Amount ($)' }
+          ],
+          integrations: ['Proposal Engine', 'Contract Builder'],
+          targets: ['deal_decision']
+        },
+        {
+          id: 'deal_decision',
+          title: '4. Deal Decision',
+          category: 'Sales & Onboarding',
+          color: 'emerald',
+          x: 1160,
+          y: 120,
+          icon: 'git-decision',
+          summary: 'Client decision gateway (Yes / No).',
+          description: 'Branching node. If approved, triggers automatic client onboarding and project provisioning.',
+          fields: [
+            { label: 'Status', value: 'Yes / No' },
+            { label: 'On Approval Action', value: 'Convert lead → Re-enter info into Client DB' }
+          ],
+          integrations: ['CRM Automation'],
+          targets: ['create_client']
+        },
+
+        // PHASE 2: Client Workspace Management
+        {
+          id: 'create_client',
+          title: '5. Client Onboarding',
+          category: 'Client Workspace',
+          color: 'blue',
+          x: 1520,
+          y: 120,
+          icon: 'user-check',
+          summary: 'Promote Lead to Active Client record.',
+          description: 'Generates hard-saved client records and provisions external Google Drive workspaces.',
+          fields: [
+            { label: 'Action', value: 'Convert Lead info into Hard-Saved Client' },
+            { label: 'Workspace', value: 'Auto-create GD (Google Drive) Workspace folder' }
+          ],
+          integrations: ['Google Drive API', 'Client Directory'],
+          targets: ['client_db', 'project_setup']
+        },
+        {
+          id: 'client_db',
+          title: 'Client Database & UID',
+          category: 'Client Workspace',
+          color: 'blue',
+          x: 1900,
+          y: 120,
+          icon: 'database',
+          summary: 'Centralized client database with unique UIDs.',
+          description: 'Stores master client records. One client can hold multiple projects. Client details are hard-saved but editable.',
+          fields: [
+            { label: 'Unique Identifier', value: 'Unique UID per Client' },
+            { label: 'Relationship', value: '1 Client : Many Projects' },
+            { label: 'Example', value: 'Client "Atom" → Dedicated GD Workspace' }
+          ],
+          integrations: ['PostgreSQL / Database', 'Dashboard Hub'],
+          targets: []
+        },
+
+        // PHASE 3: Project Engine & Tasks
+        {
+          id: 'project_setup',
+          title: '6. Project Provisioning',
+          category: 'Project Engine',
+          color: 'purple',
+          x: 1520,
+          y: 420,
+          icon: 'folder-plus',
+          summary: 'Initialize project structure, team, and unique project UID.',
+          description: 'Creates project container, links freelancer/team members, sets billing parameters, and triggers GD storage folder generation.',
+          fields: [
+            { label: 'Project Attributes', value: 'Project Unique UID, Description' },
+            { label: 'Assignment', value: 'Client / Freelancer Assignment' },
+            { label: 'Financials', value: 'Amount Charge' },
+            { label: 'Storage', value: 'Create GD Link / Workspace' }
+          ],
+          integrations: ['Storage Provisioner', 'Team Management'],
+          targets: ['task_breakdown', 'invoice_gen', 'project_url']
+        },
+        {
+          id: 'task_breakdown',
+          title: 'Task Breakdown Engine',
+          category: 'Project Engine',
+          color: 'purple',
+          x: 1160,
+          y: 420,
+          icon: 'list-checks',
+          summary: 'Decompose project into granular workflow tasks.',
+          description: 'Standardized task sequence automatically created for video production or project deliverables.',
+          fields: [
+            { label: 'Standard Tasks', value: 'Script → Intro → Rough Build → Client Review → Revision' },
+            { label: 'Task Attributes', value: 'Task Name (e.g. "Reel Edit"), Priority, Status, Deadline, Estimated Time' }
+          ],
+          integrations: ['Task Tracker', 'Timer / Kanban'],
+          targets: []
+        },
+        {
+          id: 'invoice_gen',
+          title: 'Invoice Generator',
+          category: 'Project Engine',
+          color: 'purple',
+          x: 1520,
+          y: 720,
+          icon: 'receipt',
+          summary: 'Automated billing and invoice generation.',
+          description: 'Generates client invoices based on project charge amounts and linked milestone deliverables.',
+          fields: [
+            { label: 'Feature', value: '[___] Invoice Generator Module' },
+            { label: 'Linked Data', value: 'Project Charge Amount, Client UID' }
+          ],
+          integrations: ['Stripe / QuickBooks', 'PDF Generator'],
+          targets: []
+        },
+
+        // PHASE 4: Client Portal & Delivery
+        {
+          id: 'project_url',
+          title: '7. Client Project URL',
+          category: 'Portal & Review',
+          color: 'amber',
+          x: 800,
+          y: 420,
+          icon: 'globe',
+          summary: 'Generate standalone client review link.',
+          description: 'Public or authenticated URL provided to client for asset inspection, comment submission, and review approvals.',
+          fields: [
+            { label: 'Link Type', value: 'Generate Unique Project URL' },
+            { label: 'Data Sync', value: 'Drive Link with Project Data & Media Assets' }
+          ],
+          integrations: ['Client Web Portal'],
+          targets: ['client_portal']
+        },
+        {
+          id: 'client_portal',
+          title: 'Client Review Portal',
+          category: 'Portal & Review',
+          color: 'amber',
+          x: 440,
+          y: 420,
+          icon: 'eye',
+          summary: 'Interactive portal for client review & feedback.',
+          description: 'Client views progress, leaves timestamped comments, requests modifications, or approves deliverables.',
+          fields: [
+            { label: 'Portal Widgets', value: '[___] Comment Box, [___] Changes / Modification' },
+            { label: 'Controls', value: 'Approve Button, [___] & [___] Request Revision Button' },
+            { label: 'Visibility', value: 'See [___] Project Progress Tracker' }
+          ],
+          integrations: ['Feedback Engine', 'Realtime Sync'],
+          targets: ['revisions']
+        },
+        {
+          id: 'revisions',
+          title: 'Revision & Final Approval',
+          category: 'Portal & Review',
+          color: 'amber',
+          x: 80,
+          y: 420,
+          icon: 'check-circle-2',
+          summary: 'Loop back for revisions or mark as complete.',
+          description: 'Revision requests route directly back into the Task Breakdown Engine. Final approval marks project done.',
+          fields: [
+            { label: 'Feedback Loop', value: 'Revisions route to Task Breakdown' },
+            { label: 'Completion', value: 'Sign-off locks project state' }
+          ],
+          integrations: ['Notification Hub', 'Project Completion'],
+          targets: ['task_breakdown']
+        }
+      ]
+    };
+
+    // Color definitions
+    const colorMap = {
+      emerald: { bg: 'bg-emerald-950/80', border: 'border-emerald-500/50', text: 'text-emerald-400', badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
+      blue:    { bg: 'bg-blue-950/80',    border: 'border-blue-500/50',    text: 'text-blue-400',    badge: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
+      purple:  { bg: 'bg-purple-950/80',  border: 'border-purple-500/50',  text: 'text-purple-400',  badge: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
+      amber:   { bg: 'bg-amber-950/80',   border: 'border-amber-500/50',   text: 'text-amber-400',   badge: 'bg-amber-500/20 text-amber-300 border-amber-500/30' }
+    };
+
+    // Application State
+    let zoomLevel = 0.85;
+    let panX = 40;
+    let panY = 60;
+    let isDragging = false;
+    let startX = 0, startY = 0;
+    let activeNodeId = null;
+
+    // Elements
+    const container = document.getElementById('canvasContainer');
+    const viewport = document.getElementById('viewport');
+    const nodesGroup = document.getElementById('nodesGroup');
+    const linesGroup = document.getElementById('linesGroup');
+    const zoomLevelEl = document.getElementById('zoomLevel');
+    const searchInput = document.getElementById('searchInput');
+
+    // --- Render Nodes ---
+    function renderNodes() {
+      nodesGroup.innerHTML = '';
+      workflowData.nodes.forEach(node => {
+        const c = colorMap[node.color];
+        const card = document.createElement('div');
+        card.id = `node-${node.id}`;
+        card.className = `node-card pointer-events-auto absolute w-72 ${c.bg} border ${c.border} rounded-2xl p-4 cursor-pointer backdrop-blur-md shadow-lg`;
+        card.style.left = `${node.x}px`;
+        card.style.top = `${node.y}px`;
+
+        card.innerHTML = `
+          <div class="flex items-start justify-between mb-2">
+            <span class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full border ${c.badge}">
+              ${node.category}
+            </span>
+            <div class="${c.text}">
+              <i data-lucide="${node.icon}" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <h3 class="font-bold text-slate-100 text-sm mb-1">${node.title}</h3>
+          <p class="text-xs text-slate-400 line-clamp-2 leading-relaxed">${node.summary}</p>
+        `;
+
+        card.addEventListener('click', (e) => {
+          e.stopPropagation();
+          selectNode(node.id);
+        });
+
+        nodesGroup.appendChild(card);
+      });
+
+      lucide.createIcons();
+    }
+
+    // --- Render SVG Connecting Lines ---
+    function renderConnections() {
+      linesGroup.innerHTML = '';
+
+      workflowData.nodes.forEach(sourceNode => {
+        sourceNode.targets.forEach(targetId => {
+          const targetNode = workflowData.nodes.find(n => n.id === targetId);
+          if (!targetNode) return;
+
+          // Calculate connection anchor points
+          const sourceWidth = 288; // w-72 = 18rem = 288px
+          const sourceHeight = 110;
+          
+          let sx = sourceNode.x + sourceWidth;
+          let sy = sourceNode.y + sourceHeight / 2;
+          let tx = targetNode.x;
+          let ty = targetNode.y + sourceHeight / 2;
+
+          // Adjust line anchors if target is to the left or below
+          if (targetNode.x < sourceNode.x) {
+            sx = sourceNode.x;
+            tx = targetNode.x + sourceWidth;
+          }
+          if (Math.abs(targetNode.x - sourceNode.x) < 50) {
+            sx = sourceNode.x + sourceWidth / 2;
+            sy = sourceNode.y + sourceHeight;
+            tx = targetNode.x + sourceWidth / 2;
+            ty = targetNode.y;
+          }
+
+          // Bezier Control points
+          const dx = Math.abs(tx - sx) * 0.5;
+          const dy = Math.abs(ty - sy) * 0.5;
+          const pathD = `M ${sx} ${sy} C ${sx + dx} ${sy}, ${tx - dx} ${ty}, ${tx} ${ty}`;
+
+          const isActive = activeNodeId === sourceNode.id || activeNodeId === targetId;
+
+          // Background path
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', pathD);
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', isActive ? '#3b82f6' : '#334155');
+          path.setAttribute('stroke-width', isActive ? '3' : '2');
+          path.setAttribute('marker-end', isActive ? 'url(#arrow-active)' : 'url(#arrow)');
+          linesGroup.appendChild(path);
+
+          // Animated flow dash path
+          if (isActive) {
+            const animPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            animPath.setAttribute('d', pathD);
+            animPath.setAttribute('fill', 'none');
+            animPath.setAttribute('stroke', '#60a5fa');
+            animPath.setAttribute('stroke-width', '2');
+            animPath.setAttribute('class', 'flow-line-animated');
+            linesGroup.appendChild(animPath);
+          }
+        });
+      });
+    }
+
+    // --- Transform Engine (Pan / Zoom) ---
+    function updateTransform() {
+      viewport.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+      zoomLevelEl.textContent = `${Math.round(zoomLevel * 100)}%`;
+    }
+
+    // Mouse Dragging Canvas
+    container.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.node-card')) return;
+      isDragging = true;
+      startX = e.clientX - panX;
+      startY = e.clientY - panY;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      panX = e.clientX - startX;
+      panY = e.clientY - startY;
+      updateTransform();
+    });
+
+    window.addEventListener('mouseup', () => { isDragging = false; });
+
+    // Mouse Wheel Zoom
+    container.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+      const newZoom = Math.min(Math.max(0.3, zoomLevel * zoomFactor), 2.0);
+      zoomLevel = newZoom;
+      updateTransform();
+    }, { passive: false });
+
+    // Zoom Buttons
+    document.getElementById('zoomIn').addEventListener('click', () => { zoomLevel = Math.min(2.0, zoomLevel * 1.15); updateTransform(); });
+    document.getElementById('zoomOut').addEventListener('click', () => { zoomLevel = Math.max(0.3, zoomLevel / 1.15); updateTransform(); });
+    document.getElementById('centerCanvas').addEventListener('click', centerWorkflow);
+    document.getElementById('btnResetZoom').addEventListener('click', centerWorkflow);
+
+    function centerWorkflow() {
+      zoomLevel = 0.75;
+      panX = 60;
+      panY = 100;
+      updateTransform();
+    }
+
+    // --- Node Selection & Sidebar Inspection ---
+    function selectNode(id) {
+      activeNodeId = id;
+
+      // Update Node Cards UI
+      document.querySelectorAll('.node-card').forEach(el => {
+        el.classList.remove('active');
+      });
+      const selectedCard = document.getElementById(`node-${id}`);
+      if (selectedCard) selectedCard.classList.add('active');
+
+      // Update Connections
+      renderConnections();
+
+      // Populate Sidebar
+      const node = workflowData.nodes.find(n => n.id === id);
+      if (!node) return;
+
+      document.getElementById('panelEmptyState').classList.add('hidden');
+      document.getElementById('panelContent').classList.remove('hidden');
+
+      document.getElementById('nodeTitle').textContent = node.title;
+      document.getElementById('nodeCategory').textContent = node.category;
+      document.getElementById('nodeDescription').textContent = node.description;
+      document.getElementById('nodeIdTag').textContent = `ID: ${node.id}`;
+
+      // Update Icon
+      const iconContainer = document.getElementById('nodeTypeIcon');
+      iconContainer.innerHTML = `<i data-lucide="${node.icon}" class="w-5 h-5"></i>`;
+
+      // Fields
+      const fieldsContainer = document.getElementById('nodeFields');
+      fieldsContainer.innerHTML = node.fields.map(f => `
+        <div class="bg-slate-950/80 p-2.5 rounded-lg border border-slate-800">
+          <div class="text-[10px] text-slate-400 font-medium uppercase tracking-wider">${f.label}</div>
+          <div class="text-xs font-mono text-slate-200 mt-0.5">${f.value}</div>
+        </div>
+      `).join('');
+
+      // Integrations
+      const tagsContainer = document.getElementById('nodeIntegrations');
+      tagsContainer.innerHTML = node.integrations.map(tag => `
+        <span class="text-[11px] bg-slate-800 border border-slate-700 text-slate-300 px-2.5 py-1 rounded-md font-mono">
+          ${tag}
+        </span>
+      `).join('');
+
+      // Connections List
+      const connContainer = document.getElementById('nodeConnections');
+      const targetNodes = node.targets.map(tid => workflowData.nodes.find(n => n.id === tid)).filter(Boolean);
+
+      if (targetNodes.length === 0) {
+        connContainer.innerHTML = `<span class="text-slate-500 italic">Terminal Step (No Downstream Nodes)</span>`;
+      } else {
+        connContainer.innerHTML = targetNodes.map(tn => `
+          <div class="flex items-center gap-2 p-2 bg-slate-950 rounded-lg border border-slate-800/80 hover:border-slate-700 cursor-pointer" onclick="selectNode('${tn.id}')">
+            <i data-lucide="arrow-right-circle" class="w-4 h-4 text-blue-400"></i>
+            <span class="text-slate-200">${tn.title}</span>
+          </div>
+        `).join('');
+      }
+
+      lucide.createIcons();
+    }
+
+    // --- Search Filter ---
+    searchInput.addEventListener('input', (e) => {
+      const query = e.target.value.toLowerCase().trim();
+      workflowData.nodes.forEach(node => {
+        const card = document.getElementById(`node-${node.id}`);
+        if (!card) return;
+        const matches = node.title.toLowerCase().includes(query) || 
+                        node.category.toLowerCase().includes(query) || 
+                        node.summary.toLowerCase().includes(query);
+        card.style.opacity = matches || query === '' ? '1' : '0.2';
+      });
+    });
+
+    // --- View Switcher (2D Map vs Swimlane) ---
+    const btnMapView = document.getElementById('btnMapView');
+    const btnSwimlaneView = document.getElementById('btnSwimlaneView');
+    const canvasContainer = document.getElementById('canvasContainer');
+    const swimlaneContainer = document.getElementById('swimlaneContainer');
+
+    btnMapView.addEventListener('click', () => {
+      btnMapView.className = "px-3 py-1 text-xs font-medium rounded-md bg-blue-600 text-white flex items-center gap-1.5 transition";
+      btnSwimlaneView.className = "px-3 py-1 text-xs font-medium rounded-md text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition";
+      canvasContainer.classList.remove('hidden');
+      swimlaneContainer.classList.add('hidden');
+    });
+
+    btnSwimlaneView.addEventListener('click', () => {
+      btnSwimlaneView.className = "px-3 py-1 text-xs font-medium rounded-md bg-blue-600 text-white flex items-center gap-1.5 transition";
+      btnMapView.className = "px-3 py-1 text-xs font-medium rounded-md text-slate-400 hover:text-slate-200 flex items-center gap-1.5 transition";
+      canvasContainer.classList.add('hidden');
+      swimlaneContainer.classList.remove('hidden');
+      renderSwimlanes();
+    });
+
+    function renderSwimlanes() {
+      const categories = ['Sales & Onboarding', 'Client Workspace', 'Project Engine', 'Portal & Review'];
+      swimlaneContainer.innerHTML = categories.map(cat => {
+        const catNodes = workflowData.nodes.filter(n => n.category === cat);
+        return `
+          <div class="w-80 shrink-0 bg-slate-900/60 border border-slate-800 rounded-2xl p-4 flex flex-col gap-4">
+            <h3 class="font-bold text-sm text-slate-200 flex items-center justify-between">
+              ${cat}
+              <span class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">${catNodes.length}</span>
+            </h3>
+            <div class="space-y-3">
+              ${catNodes.map(n => `
+                <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 hover:border-blue-500/50 cursor-pointer transition" onclick="selectNode('${n.id}')">
+                  <div class="font-bold text-xs text-slate-100 mb-1">${n.title}</div>
+                  <p class="text-[11px] text-slate-400 leading-relaxed">${n.summary}</p>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // --- Initialization ---
+    renderNodes();
+    renderConnections();
+    centerWorkflow();
+    selectNode('lead_gen');
+  </script>
+</body>
+</html>
